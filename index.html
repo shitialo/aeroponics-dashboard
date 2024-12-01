@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aeroponic Control Panel</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Aeroponic Control Panel</h1>
+        <div class="sensor-grid" id="sensorGrid">
+            <div class="sensor-card"><h3>Temperature</h3><div class="sensor-value" id="temp">--</div></div>
+            <div class="sensor-card"><h3>Humidity</h3><div class="sensor-value" id="hum">--</div></div>
+            <div class="sensor-card"><h3>VPD</h3><div class="sensor-value" id="vpd">--</div></div>
+            <div class="sensor-card"><h3>pH</h3><div class="sensor-value" id="ph">--</div></div>
+            <div class="sensor-card"><h3>Water Level</h3><div class="sensor-value" id="wl">--</div></div>
+            <div class="sensor-card"><h3>Reservoir Volume</h3><div class="sensor-value" id="rv">--</div></div>
+            <div class="sensor-card"><h3>Light Intensity</h3><div class="sensor-value" id="li">--</div></div>
+        </div>
+        <div class="controls">
+            <div class="control-item">
+                <label for="lightThreshold">Light Threshold:</label>
+                <input type="range" id="lightThreshold" min="0" max="4095" value="2000">
+                <span id="lightThresholdValue">2000</span>
+            </div>
+            <div class="control-item">
+                <label for="pHTarget">pH Target:</label>
+                <input type="range" id="pHTarget" min="5.5" max="6.5" step="0.1" value="6.0">
+                <span id="pHTargetValue">6.0</span>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html> 
