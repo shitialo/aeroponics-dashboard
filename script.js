@@ -1,49 +1,99 @@
 // Configuration
-const API_BASE_URL = 'http://your-esp32-ip-address'; // Change this to your ESP32's IP address
-const UPDATE_INTERVAL = 2000; // Update interval in milliseconds
+const API_BASE_URL = window.config.API_BASE_URL;
+const UPDATE_INTERVAL = 2000;
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY = 1000;
 
 let updateInProgress = false;
+let connectionStatus = false;
+let retryCount = 0;
 
-// Utility function for throttling
-const throttle = (func, limit) => {
-    let inThrottle;
-    return function(...args) {
-        if (!inThrottle) {
-            func.apply(this, args);
-            inThrottle = true;
-            setTimeout(() => inThrottle = false, limit);
+// Check connection status
+async function checkConnection() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/status`);
+        if (response.ok) {
+            const data = await response.json();
+            connectionStatus = true;
+            retryCount = 0;
+            updateConnectionStatus(true);
+            return true;
         }
+    } catch (error) {
+        console.error('Connection check failed:', error);
+        connectionStatus = false;
+        updateConnectionStatus(false);
+        return false;
+    }
+    return false;
+}
+
+// Update UI to show connection status
+function updateConnectionStatus(isConnected) {
+    const statusElement = document.getElementById('connection-status');
+    if (statusElement) {
+        statusElement.textContent = isConnected ? 'Connected' : 'Disconnected';
+        statusElement.className = isConnected ? 'status-connected' : 'status-disconnected';
     }
 }
 
-// Fetch sensor data from the ESP32
+// Enhanced fetch with retry logic
+async function fetchWithRetry(url, options = {}, attempts = MAX_RETRY_ATTEMPTS) {
+    try {
+        const response = await fetch(url, options);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response;
+    } catch (error) {
+        if (attempts === 1) throw error;
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        return fetchWithRetry(url, options, attempts - 1);
+    }
+}
+
+// Updated sensor data fetch
 async function updateSensorData() {
     if (updateInProgress) return;
     updateInProgress = true;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/data`);
+        if (!connectionStatus && !(await checkConnection())) {
+            throw new Error('Device not connected');
+        }
+
+        const response = await fetchWithRetry(`${API_BASE_URL}/data`);
         const data = await response.json();
         
-        // Update DOM elements with sensor data
-        document.getElementById('temp').textContent = data.Temperature;
-        document.getElementById('hum').textContent = data.Humidity;
-        document.getElementById('vpd').textContent = data.VPD;
-        document.getElementById('ph').textContent = data.pH;
-        document.getElementById('wl').textContent = data.WaterLevel;
-        document.getElementById('rv').textContent = data.ReservoirVolume;
-        document.getElementById('li').textContent = data.LightIntensity;
+        Object.entries(data).forEach(([key, value]) => {
+            const element = document.getElementById(key.toLowerCase());
+            if (element) {
+                element.textContent = value;
+            }
+        });
+
+        retryCount = 0;
     } catch (error) {
         console.error('Error fetching data:', error);
+        retryCount++;
+        
+        if (retryCount >= MAX_RETRY_ATTEMPTS) {
+            connectionStatus = false;
+            updateConnectionStatus(false);
+        }
     } finally {
         updateInProgress = false;
     }
 }
 
-// Send control updates to the ESP32
+// Updated control function
 async function updateControl(control, value) {
     try {
-        const response = await fetch(`${API_BASE_URL}/control`, {
+        if (!connectionStatus && !(await checkConnection())) {
+            throw new Error('Device not connected');
+        }
+
+        const response = await fetchWithRetry(`${API_BASE_URL}/control`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -51,12 +101,31 @@ async function updateControl(control, value) {
             body: JSON.stringify({ [control]: value })
         });
         
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        // Show success feedback
+        showFeedback(`${control} updated successfully`, 'success');
     } catch (error) {
         console.error('Error updating control:', error);
+        showFeedback(`Failed to update ${control}`, 'error');
     }
+}
+
+// Add feedback UI
+function showFeedback(message, type) {
+    const feedback = document.getElementById('feedback') || createFeedbackElement();
+    feedback.textContent = message;
+    feedback.className = `feedback ${type}`;
+    feedback.style.opacity = '1';
+    
+    setTimeout(() => {
+        feedback.style.opacity = '0';
+    }, 3000);
+}
+
+function createFeedbackElement() {
+    const feedback = document.createElement('div');
+    feedback.id = 'feedback';
+    document.body.appendChild(feedback);
+    return feedback;
 }
 
 // Event Listeners
