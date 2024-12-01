@@ -1,5 +1,5 @@
 // Configuration
-const API_BASE_URL = window.config.API_BASE_URL;
+const API_BASE_URL = window.config?.API_BASE_URL || 'http://192.168.1.XXX'; // Replace with your ESP32's IP
 const UPDATE_INTERVAL = 2000;
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000;
@@ -7,6 +7,18 @@ const RETRY_DELAY = 1000;
 let updateInProgress = false;
 let connectionStatus = false;
 let retryCount = 0;
+
+// Utility function for throttling
+const throttle = (func, limit) => {
+    let inThrottle;
+    return function(...args) {
+        if (!inThrottle) {
+            func.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    }
+}
 
 // Check connection status
 async function checkConnection() {
@@ -17,6 +29,7 @@ async function checkConnection() {
             connectionStatus = true;
             retryCount = 0;
             updateConnectionStatus(true);
+            console.log('Connected to ESP32:', data);
             return true;
         }
     } catch (error) {
@@ -101,13 +114,29 @@ async function updateControl(control, value) {
             body: JSON.stringify({ [control]: value })
         });
         
-        // Show success feedback
         showFeedback(`${control} updated successfully`, 'success');
     } catch (error) {
         console.error('Error updating control:', error);
         showFeedback(`Failed to update ${control}`, 'error');
     }
 }
+
+// Event Listeners
+document.getElementById('lightThreshold').addEventListener('input', 
+    throttle(function() {
+        const value = this.value;
+        document.getElementById('lightThresholdValue').textContent = value;
+        updateControl('lightThreshold', value);
+    }, 250)
+);
+
+document.getElementById('pHTarget').addEventListener('input',
+    throttle(function() {
+        const value = this.value;
+        document.getElementById('pHTargetValue').textContent = value;
+        updateControl('pHTarget', value);
+    }, 250)
+);
 
 // Add feedback UI
 function showFeedback(message, type) {
@@ -128,23 +157,8 @@ function createFeedbackElement() {
     return feedback;
 }
 
-// Event Listeners
-document.getElementById('lightThreshold').addEventListener('input', 
-    throttle(function() {
-        const value = this.value;
-        document.getElementById('lightThresholdValue').textContent = value;
-        updateControl('lightThreshold', value);
-    }, 250)
-);
-
-document.getElementById('pHTarget').addEventListener('input',
-    throttle(function() {
-        const value = this.value;
-        document.getElementById('pHTargetValue').textContent = value;
-        updateControl('pHTarget', value);
-    }, 250)
-);
-
 // Initialize updates
-setInterval(updateSensorData, UPDATE_INTERVAL);
-updateSensorData(); 
+checkConnection().then(() => {
+    setInterval(updateSensorData, UPDATE_INTERVAL);
+    updateSensorData();
+}); 

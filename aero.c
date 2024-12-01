@@ -71,6 +71,10 @@ int LIGHT_THRESHOLD = 500;  // Initial value, can be modified at runtime
 unsigned long lastDataUpdate = 0;
 const unsigned long DATA_UPDATE_INTERVAL = 1000; // Update data every second
 
+bool sht31_available = false;
+const float DEFAULT_TEMP = 25.0;
+const float DEFAULT_HUMIDITY = 60.0;
+
 void setup() {
   Serial.begin(115200);
   Wire.begin(41, 42);  // ESP32-S3 default I2C pins: SDA=41, SCL=42
@@ -91,7 +95,11 @@ void setup() {
   
   if (!sht31.begin(0x44)) {
     Serial.println("Couldn't find SHT31");
-    while (1) delay(1);
+    sht31_available = false;
+    Serial.println("Using default temperature and humidity values");
+  } else {
+    sht31_available = true;
+    Serial.println("SHT31 sensor initialized successfully");
   }
   
   stepper.setMaxSpeed(1000);
@@ -124,8 +132,19 @@ void loop() {
   server.handleClient();  // Add this line to handle web requests
 
   // Read sensor data
-  temperature = sht31.readTemperature();
-  humidity = sht31.readHumidity();
+  if (sht31_available) {
+    temperature = sht31.readTemperature();
+    humidity = sht31.readHumidity();
+    
+    if (isnan(temperature) || isnan(humidity)) {
+      temperature = DEFAULT_TEMP;
+      humidity = DEFAULT_HUMIDITY;
+    }
+  } else {
+    temperature = DEFAULT_TEMP;
+    humidity = DEFAULT_HUMIDITY;
+  }
+  
   vpd = calculateVPD(temperature, humidity);
   pH = readpH();
   waterLevel = measureWaterLevel();
@@ -176,18 +195,27 @@ void handleVPDControl(unsigned long currentTime) {
   if (currentTime - lastVPDCycleTime >= vpdCycleInterval) {
     lastVPDCycleTime = currentTime;
     
-    float humidity = sht31.readHumidity();
-    float temperature = sht31.readTemperature();
-
-    if (!isnan(humidity) && !isnan(temperature)) {
-      float vpd = calculateVPD(temperature, humidity);
-      updateVPDCycleInterval(vpd);
+    float humidity, temperature;
+    
+    if (sht31_available) {
+      humidity = sht31.readHumidity();
+      temperature = sht31.readTemperature();
       
-      Serial.printf("Humidity: %.1f%%, Temperature: %.1f°C, VPD: %.2f kPa\n", 
-                   humidity, temperature, vpd);
+      if (isnan(humidity) || isnan(temperature)) {
+        Serial.println("Failed to read from SHT31 sensor, using default values");
+        humidity = DEFAULT_HUMIDITY;
+        temperature = DEFAULT_TEMP;
+      }
     } else {
-      Serial.println("Failed to read from SHT31 sensor!");
+      humidity = DEFAULT_HUMIDITY;
+      temperature = DEFAULT_TEMP;
     }
+
+    float vpd = calculateVPD(temperature, humidity);
+    updateVPDCycleInterval(vpd);
+    
+    Serial.printf("Humidity: %.1f%%, Temperature: %.1f°C, VPD: %.2f kPa\n", 
+                 humidity, temperature, vpd);
 
     digitalWrite(VPD_PUMP_RELAY, HIGH);
     isVPDPumping = true;
@@ -284,175 +312,10 @@ void checkAndAdjustPH(unsigned long currentTime) {
   }
 }
 
-// Modify handleRoot() to use a more efficient approach
+// Replace it with a simple redirect to your Netlify site
 void handleRoot() {
-  server.sendHeader("Cache-Control", "max-age=31536000");
-  
-  String html = R"rawliteral(
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aeroponic Control Panel</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: linear-gradient(120deg, #84fab0 0%, #8fd3f4 100%);
-            margin: 0;
-            padding: 20px;
-            color: #333;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background-color: rgba(255, 255, 255, 0.9);
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #2c3e50;
-            text-align: center;
-        }
-        .sensor-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        .sensor-card {
-            background-color: #fff;
-            border-radius: 5px;
-            padding: 15px;
-            text-align: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .sensor-value {
-            font-size: 24px;
-            font-weight: bold;
-            margin: 10px 0;
-        }
-        .controls {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-around;
-        }
-        .control-item {
-            margin: 10px;
-        }
-        input[type="range"] {
-            width: 200px;
-        }
-        button {
-            background-color: #3498db;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        button:hover {
-            background-color: #2980b9;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Aeroponic Control Panel</h1>
-        <div class="sensor-grid" id="sensorGrid">
-            <div class="sensor-card"><h3>Temperature</h3><div class="sensor-value" id="temp">--</div></div>
-            <div class="sensor-card"><h3>Humidity</h3><div class="sensor-value" id="hum">--</div></div>
-            <div class="sensor-card"><h3>VPD</h3><div class="sensor-value" id="vpd">--</div></div>
-            <div class="sensor-card"><h3>pH</h3><div class="sensor-value" id="ph">--</div></div>
-            <div class="sensor-card"><h3>Water Level</h3><div class="sensor-value" id="wl">--</div></div>
-            <div class="sensor-card"><h3>Reservoir Volume</h3><div class="sensor-value" id="rv">--</div></div>
-            <div class="sensor-card"><h3>Light Intensity</h3><div class="sensor-value" id="li">--</div></div>
-        </div>
-        <div class="controls">
-            <div class="control-item">
-                <label for="lightThreshold">Light Threshold:</label>
-                <input type="range" id="lightThreshold" min="0" max="4095" value="2000">
-                <span id="lightThresholdValue">2000</span>
-            </div>
-            <div class="control-item">
-                <label for="pHTarget">pH Target:</label>
-                <input type="range" id="pHTarget" min="5.5" max="6.5" step="0.1" value="6.0">
-                <span id="pHTargetValue">6.0</span>
-            </div>
-        </div>
-    </div>
-    <script>
-        let updateInProgress = false;
-        
-        async function updateSensorData() {
-            if (updateInProgress) return;
-            updateInProgress = true;
-            
-            try {
-                const response = await fetch('/data');
-                const data = await response.json();
-                
-                document.getElementById('temp').textContent = data.Temperature;
-                document.getElementById('hum').textContent = data.Humidity;
-                document.getElementById('vpd').textContent = data.VPD;
-                document.getElementById('ph').textContent = data.pH;
-                document.getElementById('wl').textContent = data.WaterLevel;
-                document.getElementById('rv').textContent = data.ReservoirVolume;
-                document.getElementById('li').textContent = data.LightIntensity;
-            } catch (error) {
-                console.error('Error fetching data:', error);
-            } finally {
-                updateInProgress = false;
-            }
-        }
-
-        async function updateControl(control, value) {
-            try {
-                await fetch('/control', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ [control]: value })
-                });
-            } catch (error) {
-                console.error('Error updating control:', error);
-            }
-        }
-
-        // Throttled event listeners
-        const throttle = (func, limit) => {
-            let inThrottle;
-            return function(...args) {
-                if (!inThrottle) {
-                    func.apply(this, args);
-                    inThrottle = true;
-                    setTimeout(() => inThrottle = false, limit);
-                }
-            }
-        }
-
-        document.getElementById('lightThreshold').addEventListener('input', 
-            throttle(function() {
-                document.getElementById('lightThresholdValue').textContent = this.value;
-                updateControl('lightThreshold', this.value);
-            }, 250)
-        );
-
-        document.getElementById('pHTarget').addEventListener('input',
-            throttle(function() {
-                document.getElementById('pHTargetValue').textContent = this.value;
-                updateControl('pHTarget', this.value);
-            }, 250)
-        );
-
-        // Start updates
-        setInterval(updateSensorData, 2000);
-        updateSensorData();
-    </script>
-</body>
-</html>)rawliteral";
-  server.send(200, "text/html", html);
+  server.sendHeader("Location", "https://aeroponics-dashboard.netlify.app", true);
+  server.send(302, "text/plain", "");
 }
 
 // Optimize handleData() to reduce JSON processing
